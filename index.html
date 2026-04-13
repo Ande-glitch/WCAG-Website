@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WCAG Vurderer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav>
+    <a href="#" class="logo">♿ WCAG Vurderer</a>
+    <div id="navLinks">
+      <a href="#" onclick="showPage('home')">Hjem</a>
+      <a href="#" onclick="showPage('faq')">FAQ</a>
+      <a href="#" onclick="showPage('add')" id="addLink" style="display:none">+ Legg til</a>
+      <span id="navUser" style="display:none">
+        Hei, <strong id="navName"></strong>
+        <a href="#" onclick="logOut()">Logg ut</a>
+      </span>
+      <span id="navAuth">
+        <a href="#" onclick="showPage('login')">Logg inn</a>
+        <a href="#" onclick="showPage('register')">Registrer</a>
+      </span>
+    </div>
+  </nav>
+  <div id="toast"></div>
+
+  <div id="page-home" class="page active">
+    <div class="hero"><h1>WCAG Vurderinger</h1><p>Vurder tilgjengeligheten til nettsider</p></div>
+    <div class="container">
+      <select onchange="setSort(this.value)" style="margin-bottom:16px;padding:6px 10px;border:1px solid #ccc;border-radius:6px">
+        <option value="newest">Nyeste først</option>
+        <option value="top">Høyest vurdering</option>
+        <option value="votes">Mest stemmer</option>
+      </select>
+      <div id="siteGrid"></div>
+    </div>
+  </div>
+
+  <div id="page-detail" class="page">
+    <div class="container">
+      <button onclick="showPage('home')" style="color:white;margin-bottom:16px">← Tilbake</button>
+      <div id="siteDetail"></div>
+      <div style="margin-top:32px">
+        <h3 style="margin-bottom:12px">Kommentarer</h3>
+        <div id="commentForm" style="display:none;margin-bottom:16px">
+          <textarea id="commentText" placeholder="Skriv en kommentar…" rows="3"></textarea>
+          <button onclick="submitComment()" style="color:white;margin-top:8px">Send kommentar</button>
+        </div>
+        <p id="commentLoginMsg"><a href="#" onclick="showPage('login')">Logg inn</a> for å kommentere.</p>
+        <div id="commentsList" style="margin-top:16px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-add" class="page">
+    <div class="container form-page">
+      <h2>Legg til nettsted</h2>
+      <form onsubmit="submitSite(event)">
+        <input type="text" id="siteName" required placeholder="Navn på nettsted">
+        <input type="url" id="siteUrl" required placeholder="URL (https://...)">
+        <input type="url" id="siteImg" placeholder="Bilde URL (valgfritt)">
+        <select id="siteRating" required>
+          <option value="">Velg WCAG-nivå</option>
+          <option value="A">A – Grunnleggende</option>
+          <option value="AA">AA – Standard</option>
+          <option value="AAA">AAA – Avansert</option>
+          <option value="Ikke godkjent">Ikke godkjent</option>
+        </select>
+        <textarea id="siteDesc" required placeholder="Begrunn vurderingen…" rows="4"></textarea>
+        <button type="submit" id="submitBtn" style="color:white">Legg til</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="page-login" class="page">
+    <div class="container form-page">
+      <h2>Logg inn</h2>
+      <form onsubmit="loginUser(event)">
+        <input type="email" id="loginEmail" required placeholder="E-post">
+        <input type="password" id="loginPassword" required placeholder="Passord">
+        <button type="submit" id="loginBtn" style="color:white">Logg inn</button>
+      </form>
+      <p>Ny bruker? <a href="#" onclick="showPage('register')">Registrer deg</a></p>
+    </div>
+  </div>
+
+  <div id="page-register" class="page">
+    <div class="container form-page">
+      <h2>Registrer deg</h2>
+      <form onsubmit="registerUser(event)">
+        <input type="text" id="regName" required placeholder="Navn">
+        <input type="email" id="regEmail" required placeholder="E-post">
+        <input type="password" id="regPassword" required placeholder="Passord (minst 6 tegn)" minlength="6">
+        <button type="submit" id="registerBtn" style="color:white">Opprett konto</button>
+      </form>
+      <p>Allerede bruker? <a href="#" onclick="showPage('login')">Logg inn</a></p>
+    </div>
+  </div>
+
+  <div id="page-faq" class="page">
+    <div class="container" style="max-width:700px">
+      <h2>Ofte stilte spørsmål</h2>
+      <div class="faq-list">
+        <details><summary>Hva er WCAG?</summary><p>WCAG (Web Content Accessibility Guidelines) er internasjonale retningslinjer for tilgjengelighet på nett, delt i nivåene A, AA og AAA.</p></details>
+        <details><summary>Hva betyr nivåene A, AA og AAA?</summary><p>A er grunnleggende krav, AA er standardnivået de fleste bør oppfylle, og AAA er det høyeste og strengeste nivået.</p></details>
+        <details><summary>Hvordan legger jeg til en vurdering?</summary><p>Logg inn og klikk "+ Legg til" i menyen. Fyll inn navn, URL, bilde, WCAG-nivå og begrunnelse.</p></details>
+        <details><summary>Kan jeg slette min egen vurdering?</summary><p>Ja, åpne vurderingen og klikk "Slett"-knappen som vises for deg som eier.</p></details>
+        <details><summary>Hvordan fungerer tommel opp/ned?</summary><p>Du kan gi positiv eller negativ tilbakemelding på vurderinger og kommentarer. Dette brukes til sortering.</p></details>
+        <details><summary>Kan jeg kommentere andres vurderinger?</summary><p>Ja, logg inn og åpne en vurdering for å skrive og slette dine egne kommentarer.</p></details>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

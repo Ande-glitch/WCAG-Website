@@ -3,12 +3,12 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, si
 import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB1tm8rq_bKvGknx9rzStR-wOp6NCxr5ME",
-  authDomain: "biblo-c7c39.firebaseapp.com",
-  projectId: "biblo-c7c39",
-  storageBucket: "biblo-c7c39.firebasestorage.app",
-  messagingSenderId: "107914063600",
-  appId: "1:107914063600:web:1e4164a38774b4ee9a1c35",
+  apiKey: "AIzaSyD3CmO2_Lt2ZLgHAi7vG3KtykAHSUwTA18",
+  authDomain: "wcag-851de.firebaseapp.com",
+  projectId: "wcag-851de",
+  storageBucket: "wcag-851de.firebasestorage.app",
+  messagingSenderId: "102592641923",
+  appId: "1:102592641923:web:a66d1bf839050764bbd4b6"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -20,14 +20,22 @@ let currentUserData = null;
 let allSites        = [];
 let currentSort     = "newest";
 let currentSiteId   = null;
+let searchQuery     = "";
+let currentPage     = 1;
+const PAGE_SIZE     = 9;
 const votingLocks   = new Set();
+
+// ── HELPERS ──
+function isAdmin() { return currentUserData?.role === "admin"; }
 
 // ── NAVIGATION ──
 window.showPage = function(name) {
+  if (name === "admin" && !isAdmin()) { toast("Ingen tilgang", "error"); return; }
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
   document.getElementById(`page-${name}`).classList.add("active");
   window.scrollTo({ top: 0 });
-  if (name === "home") loadSites();
+  if (name === "home")  loadSites();
+  if (name === "admin") loadReports();
   if (name === "add" && !currentUser) { showPage("login"); toast("Logg inn først", "error"); }
 };
 
@@ -43,9 +51,10 @@ onAuthStateChanged(auth, async (user) => {
 
 function updateNav() {
   const li = !!currentUser;
-  document.getElementById("navAuth").style.display = li ? "none"   : "flex";
-  document.getElementById("navUser").style.display = li ? "inline" : "none";
-  document.getElementById("addLink").style.display = li ? "inline" : "none";
+  document.getElementById("navAuth").style.display  = li ? "none"   : "flex";
+  document.getElementById("navUser").style.display  = li ? "inline" : "none";
+  document.getElementById("addLink").style.display  = li ? "inline" : "none";
+  document.getElementById("adminLink").style.display = isAdmin() ? "inline" : "none";
   if (li && currentUserData) document.getElementById("navName").textContent = currentUserData.displayName;
 }
 
@@ -83,32 +92,68 @@ async function loadSites() {
   document.getElementById("siteGrid").innerHTML = `<div class="empty">Laster…</div>`;
   const snap = await getDocs(query(collection(db, "wcag_sites"), orderBy("createdAt", "desc")));
   allSites = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  currentPage = 1;
   renderSites();
 }
 
-window.setSort = function(val) { currentSort = val; renderSites(); };
+window.setSort = function(val) { currentSort = val; currentPage = 1; renderSites(); };
+
+window.onSearch = function() {
+  searchQuery = document.getElementById("searchInput").value.toLowerCase().trim();
+  currentPage = 1;
+  renderSites();
+};
+
+window.goToPage = function(p) { currentPage = p; renderSites(); window.scrollTo({ top: 0 }); };
 
 function renderSites() {
   let list = [...allSites];
+  if (searchQuery) list = list.filter(s =>
+    s.name.toLowerCase().includes(searchQuery) ||
+    (s.description||"").toLowerCase().includes(searchQuery) ||
+    (s.url||"").toLowerCase().includes(searchQuery)
+  );
+
   if (currentSort === "top")   list.sort((a, b) => (b.thumbsUp||0) - (a.thumbsUp||0));
   if (currentSort === "votes") list.sort((a, b) => ((b.thumbsUp||0)+(b.thumbsDown||0)) - ((a.thumbsUp||0)+(a.thumbsDown||0)));
+
+  document.getElementById("resultCount").textContent = `${list.length} resultat${list.length !== 1 ? "er" : ""}`;
+
+  const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageItems = list.slice(start, start + PAGE_SIZE);
+
   const grid = document.getElementById("siteGrid");
-  if (!list.length) { grid.innerHTML = `<div class="empty">Ingen vurderinger ennå.</div>`; return; }
-  grid.innerHTML = list.map(s => `
-    <div class="site-card" onclick="openSite('${s.id}')">
-      ${s.imgUrl ? `<img class="site-img" src="${esc(s.imgUrl)}" alt="${esc(s.name)}">` : `<div class="site-img-placeholder">🌐</div>`}
-      <div class="site-body">
-        <span class="site-badge ${badge(s.rating)}">WCAG ${esc(s.rating)}</span>
-        <div class="site-name">${esc(s.name)}</div>
-        <div class="site-desc">${esc(s.description)}</div>
-        <div class="site-by">Vurdert av ${esc(s.addedByName)}</div>
-        <div class="site-actions" onclick="event.stopPropagation()">
-          <a class="visit-btn" href="${esc(s.url)}" target="_blank">🔗 Besøk</a>
-          <button class="vote-btn" onclick="voteSite('${s.id}','up')">👍 ${s.thumbsUp||0}</button>
-          <button class="vote-btn" onclick="voteSite('${s.id}','down')">👎 ${s.thumbsDown||0}</button>
+  if (!pageItems.length) {
+    grid.innerHTML = `<div class="empty">${searchQuery ? "Ingen treff på søket." : "Ingen vurderinger ennå."}</div>`;
+  } else {
+    grid.innerHTML = pageItems.map(s => `
+      <div class="site-card" onclick="openSite('${s.id}')">
+        ${s.imgUrl ? `<img class="site-img" src="${esc(s.imgUrl)}" alt="${esc(s.name)}">` : `<div class="site-img-placeholder">🌐</div>`}
+        <div class="site-body">
+          <span class="site-badge ${badge(s.rating)}">WCAG ${esc(s.rating)}</span>
+          <div class="site-name">${esc(s.name)}</div>
+          <div class="site-desc">${esc(s.description)}</div>
+          <div class="site-by">Vurdert av ${esc(s.addedByName)}</div>
+          <div class="site-actions" onclick="event.stopPropagation()">
+            <a class="visit-btn" href="${esc(s.url)}" target="_blank">🔗 Besøk</a>
+            <button class="vote-btn" onclick="voteSite('${s.id}','up')">👍 ${s.thumbsUp||0}</button>
+            <button class="vote-btn" onclick="voteSite('${s.id}','down')">👎 ${s.thumbsDown||0}</button>
+          </div>
         </div>
-      </div>
-    </div>`).join("");
+      </div>`).join("");
+  }
+
+  const pag = document.getElementById("pagination");
+  if (totalPages <= 1) { pag.innerHTML = ""; return; }
+  let html = "";
+  if (currentPage > 1) html += `<button class="page-btn" onclick="goToPage(${currentPage-1})">← Forrige</button>`;
+  for (let i = 1; i <= totalPages; i++) {
+    html += `<button class="page-btn ${i===currentPage?"active":""}" onclick="goToPage(${i})">${i}</button>`;
+  }
+  if (currentPage < totalPages) html += `<button class="page-btn" onclick="goToPage(${currentPage+1})">Neste →</button>`;
+  pag.innerHTML = html;
 }
 
 // ── SITE DETAIL ──
@@ -119,8 +164,8 @@ window.openSite = async function(siteId) {
   const snap = await getDoc(doc(db, "wcag_sites", siteId));
   if (!snap.exists()) { toast("Ikke funnet", "error"); return; }
   const s = { id: snap.id, ...snap.data() };
+  const canDelete = currentUser?.uid === s.addedBy || isAdmin();
 
-  const isOwner = currentUser?.uid === s.addedBy;
   document.getElementById("siteDetail").innerHTML = `
     ${s.imgUrl ? `<img class="detail-img" src="${esc(s.imgUrl)}" alt="${esc(s.name)}">` : `<div class="detail-img-placeholder">🌐</div>`}
     <span class="site-badge ${badge(s.rating)}">WCAG ${esc(s.rating)}</span>
@@ -131,12 +176,22 @@ window.openSite = async function(siteId) {
       <a class="visit-btn" href="${esc(s.url)}" target="_blank">🔗 Besøk nettsted</a>
       <button class="vote-btn" onclick="voteSite('${s.id}','up')">👍 ${s.thumbsUp||0}</button>
       <button class="vote-btn" onclick="voteSite('${s.id}','down')">👎 ${s.thumbsDown||0}</button>
-      ${isOwner ? `<button class="del-btn" onclick="deleteSite('${s.id}')">🗑 Slett</button>` : ""}
+      ${canDelete ? `<button class="del-btn" onclick="deleteSite('${s.id}')">🗑 Slett</button>` : ""}
+      ${currentUser && !isAdmin() ? `<button class="report-btn" onclick="reportContent('site','${s.id}','${esc(s.name)}','')">🚩 Rapporter</button>` : ""}
     </div>`;
 
-  // Comments
-  document.getElementById("commentForm").style.display = currentUser ? "block" : "none";
-  document.getElementById("commentLoginMsg").style.display = currentUser ? "none" : "block";
+  document.getElementById("commentForm").style.display    = currentUser ? "block" : "none";
+  document.getElementById("commentLoginMsg").style.display = currentUser ? "none"  : "block";
+
+  const imgInput = document.getElementById("commentImg");
+  const preview  = document.getElementById("imgPreview");
+  imgInput.value = "";
+  preview.innerHTML = "";
+  imgInput.oninput = () => {
+    const v = imgInput.value.trim();
+    preview.innerHTML = v ? `<img src="${esc(v)}" style="max-width:100%;max-height:160px;border-radius:6px;margin-top:4px">` : "";
+  };
+
   loadComments(siteId);
 };
 
@@ -157,29 +212,37 @@ async function loadComments(siteId) {
 
   const el = document.getElementById("commentsList");
   if (!comments.length) { el.innerHTML = `<div class="empty">Ingen kommentarer ennå.</div>`; return; }
-  el.innerHTML = comments.map(c => `
+  el.innerHTML = comments.map(c => {
+    const canDelete = currentUser?.uid === c.authorUid || isAdmin();
+    return `
     <div class="comment-card">
       <div class="comment-name">${esc(c.authorName)}</div>
       <div class="comment-date">${formatDate(c.createdAt)}</div>
       <p class="comment-text">${esc(c.text)}</p>
+      ${c.imgUrl ? `<img class="comment-img" src="${esc(c.imgUrl)}" alt="Kommentarbilde">` : ""}
       <div class="comment-actions">
         <button class="vote-btn ${myVotes[c.id]==='up'?'voted-up':''}" onclick="voteComment('${siteId}','${c.id}','up')">👍 ${c.thumbsUp||0}</button>
         <button class="vote-btn ${myVotes[c.id]==='down'?'voted-down':''}" onclick="voteComment('${siteId}','${c.id}','down')">👎 ${c.thumbsDown||0}</button>
-        ${currentUser?.uid === c.authorUid ? `<button class="del-btn" onclick="deleteComment('${siteId}','${c.id}')">🗑</button>` : ""}
+        ${canDelete ? `<button class="del-btn" onclick="deleteComment('${siteId}','${c.id}')">🗑</button>` : ""}
+        ${currentUser && !isAdmin() && currentUser.uid !== c.authorUid ? `<button class="report-btn" onclick="reportContent('comment','${c.id}','${esc(c.authorName)}','${esc(c.text.substring(0,80))}')">🚩</button>` : ""}
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 window.submitComment = async function() {
   if (!currentUser) return;
-  const text = document.getElementById("commentText").value.trim();
+  const text   = document.getElementById("commentText").value.trim();
+  const imgUrl = document.getElementById("commentImg").value.trim();
   if (!text) { toast("Skriv en kommentar", "error"); return; }
   try {
     await addDoc(collection(db, "wcag_sites", currentSiteId, "comments"), {
-      text, authorUid: currentUser.uid, authorName: currentUserData.displayName,
+      text, imgUrl, authorUid: currentUser.uid, authorName: currentUserData.displayName,
       createdAt: serverTimestamp(), thumbsUp: 0, thumbsDown: 0
     });
     document.getElementById("commentText").value = "";
+    document.getElementById("commentImg").value  = "";
+    document.getElementById("imgPreview").innerHTML = "";
     toast("Kommentar lagt til!", "success");
     loadComments(currentSiteId);
   } catch (err) { toast("Feil: " + err.message, "error"); }
@@ -194,13 +257,98 @@ window.deleteComment = async function(siteId, commentId) {
   } catch (err) { toast("Feil: " + err.message, "error"); }
 };
 
-// ── DELETE SITE ──
 window.deleteSite = async function(siteId) {
   if (!confirm("Slette denne vurderingen?")) return;
   try {
     await deleteDoc(doc(db, "wcag_sites", siteId));
     toast("Vurdering slettet", "success");
     showPage("home");
+  } catch (err) { toast("Feil: " + err.message, "error"); }
+};
+
+// ── REPORT ──
+window.reportContent = async function(type, targetId, targetName, preview) {
+  if (!currentUser) { toast("Logg inn for å rapportere", "error"); return; }
+  const reason = prompt(`Hvorfor rapporterer du ${type === "site" ? "denne vurderingen" : "denne kommentaren"}?\n"${targetName}"`);
+  if (reason === null) return; // cancelled
+  if (!reason.trim()) { toast("Skriv en grunn", "error"); return; }
+  try {
+    await addDoc(collection(db, "reports"), {
+      type,           // "site" | "comment"
+      targetId,
+      targetName,
+      preview,
+      siteId: currentSiteId,
+      reason: reason.trim(),
+      reportedBy: currentUser.uid,
+      reportedByName: currentUserData.displayName,
+      createdAt: serverTimestamp(),
+      resolved: false
+    });
+    toast("Rapport sendt. Takk! ✅", "success");
+  } catch (err) { toast("Feil: " + err.message, "error"); }
+};
+
+// ── ADMIN PANEL ──
+async function loadReports() {
+  const el = document.getElementById("adminReports");
+  el.innerHTML = `<div class="empty">Laster rapporter…</div>`;
+  try {
+    const snap = await getDocs(query(collection(db, "reports"), orderBy("createdAt", "desc")));
+    const reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const open = reports.filter(r => !r.resolved);
+    const done = reports.filter(r => r.resolved);
+
+    if (!reports.length) { el.innerHTML = `<div class="empty">Ingen rapporter ennå.</div>`; return; }
+
+    const renderCard = r => `
+      <div class="report-card" id="report-${r.id}">
+        <span class="report-type ${r.type === 'site' ? 'report-type-site' : 'report-type-comment'}">${r.type === 'site' ? '📄 Vurdering' : '💬 Kommentar'}</span>
+        <div class="report-meta">Rapportert av <strong>${esc(r.reportedByName)}</strong> · ${formatDate(r.createdAt)}</div>
+        <div class="report-content">
+          <strong>${esc(r.targetName)}</strong>${r.preview ? `<br><span style="color:#888">${esc(r.preview)}${r.preview.length >= 80 ? "…" : ""}</span>` : ""}
+        </div>
+        <div style="font-size:0.85rem;margin-bottom:10px;color:#555">Grunn: ${esc(r.reason)}</div>
+        <div class="report-actions">
+          ${r.type === 'site'
+            ? `<button class="del-btn" onclick="adminDeleteSite('${r.siteId}','${r.id}')">🗑 Slett vurdering</button>`
+            : `<button class="del-btn" onclick="adminDeleteComment('${r.siteId}','${r.targetId}','${r.id}')">🗑 Slett kommentar</button>`}
+          <button class="report-resolve-btn" onclick="resolveReport('${r.id}')">✔ Merk løst</button>
+        </div>
+      </div>`;
+
+    el.innerHTML =
+      `<h3 style="margin-bottom:12px">Åpne rapporter (${open.length})</h3>` +
+      (open.length ? open.map(renderCard).join("") : `<div class="empty" style="padding:16px">Ingen åpne rapporter.</div>`) +
+      (done.length ? `<h3 style="margin:24px 0 12px">Løste rapporter (${done.length})</h3>` + done.map(r => `<div style="opacity:0.5">${renderCard(r)}</div>`).join("") : "");
+  } catch (err) { el.innerHTML = `<div class="empty">Feil: ${err.message}</div>`; }
+}
+
+window.adminDeleteSite = async function(siteId, reportId) {
+  if (!isAdmin()) return;
+  if (!confirm("Slette denne vurderingen?")) return;
+  try {
+    await deleteDoc(doc(db, "wcag_sites", siteId));
+    await resolveReport(reportId);
+    toast("Vurdering slettet", "success");
+  } catch (err) { toast("Feil: " + err.message, "error"); }
+};
+
+window.adminDeleteComment = async function(siteId, commentId, reportId) {
+  if (!isAdmin()) return;
+  if (!confirm("Slette kommentaren?")) return;
+  try {
+    await deleteDoc(doc(db, "wcag_sites", siteId, "comments", commentId));
+    await resolveReport(reportId);
+    toast("Kommentar slettet", "success");
+  } catch (err) { toast("Feil: " + err.message, "error"); }
+};
+
+window.resolveReport = async function(reportId) {
+  try {
+    await updateDoc(doc(db, "reports", reportId), { resolved: true });
+    toast("Rapport merket som løst", "success");
+    loadReports();
   } catch (err) { toast("Feil: " + err.message, "error"); }
 };
 
@@ -215,18 +363,15 @@ window.voteSite = async function(siteId, dir) {
     const ex = await getDoc(vRef);
     if (ex.exists()) {
       if (ex.data().vote === dir) {
-        await deleteDoc(vRef);
-        await updateDoc(sRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(-1) });
+        await deleteDoc(vRef); await updateDoc(sRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(-1) });
       } else {
-        await setDoc(vRef, { vote: dir });
-        await updateDoc(sRef, { thumbsUp: increment(dir==="up"?1:-1), thumbsDown: increment(dir==="down"?1:-1) });
+        await setDoc(vRef, { vote: dir }); await updateDoc(sRef, { thumbsUp: increment(dir==="up"?1:-1), thumbsDown: increment(dir==="down"?1:-1) });
       }
     } else {
-      await setDoc(vRef, { vote: dir });
-      await updateDoc(sRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(1) });
+      await setDoc(vRef, { vote: dir }); await updateDoc(sRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(1) });
     }
-    loadSites();
-    if (currentSiteId === siteId) openSite(siteId);
+    const onDetail = document.getElementById("page-detail").classList.contains("active");
+    if (onDetail && currentSiteId === siteId) openSite(siteId); else loadSites();
   } catch (err) { toast("Feil: " + err.message, "error"); }
   finally { votingLocks.delete(siteId); }
 };
@@ -242,15 +387,12 @@ window.voteComment = async function(siteId, commentId, dir) {
     const ex = await getDoc(vRef);
     if (ex.exists()) {
       if (ex.data().vote === dir) {
-        await deleteDoc(vRef);
-        await updateDoc(cRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(-1) });
+        await deleteDoc(vRef); await updateDoc(cRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(-1) });
       } else {
-        await setDoc(vRef, { vote: dir });
-        await updateDoc(cRef, { thumbsUp: increment(dir==="up"?1:-1), thumbsDown: increment(dir==="down"?1:-1) });
+        await setDoc(vRef, { vote: dir }); await updateDoc(cRef, { thumbsUp: increment(dir==="up"?1:-1), thumbsDown: increment(dir==="down"?1:-1) });
       }
     } else {
-      await setDoc(vRef, { vote: dir });
-      await updateDoc(cRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(1) });
+      await setDoc(vRef, { vote: dir }); await updateDoc(cRef, { [dir==="up"?"thumbsUp":"thumbsDown"]: increment(1) });
     }
     loadComments(siteId);
   } catch (err) { toast("Feil: " + err.message, "error"); }
